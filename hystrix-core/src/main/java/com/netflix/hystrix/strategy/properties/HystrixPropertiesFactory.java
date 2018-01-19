@@ -25,6 +25,7 @@ import com.netflix.hystrix.HystrixCommandProperties;
 import com.netflix.hystrix.HystrixThreadPool;
 import com.netflix.hystrix.HystrixThreadPoolKey;
 import com.netflix.hystrix.HystrixThreadPoolProperties;
+import com.netflix.hystrix.datastore.HystrixDataStore;
 import com.netflix.hystrix.strategy.HystrixPlugins;
 
 /**
