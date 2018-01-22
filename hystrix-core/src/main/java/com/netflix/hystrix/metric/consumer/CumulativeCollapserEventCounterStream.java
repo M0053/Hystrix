@@ -19,8 +19,11 @@ import com.netflix.hystrix.HystrixCollapserKey;
 import com.netflix.hystrix.HystrixCollapserMetrics;
 import com.netflix.hystrix.HystrixCollapserProperties;
 import com.netflix.hystrix.HystrixEventType;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCollapserEvent;
 import com.netflix.hystrix.metric.HystrixCollapserEventStream;
+import com.netflix.hystrix.util.Lazy;
 import rx.functions.Func2;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,7 +45,7 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class CumulativeCollapserEventCounterStream extends BucketedCumulativeCounterStream<HystrixCollapserEvent, long[], long[]> {
 
-    private static final ConcurrentMap<String, CumulativeCollapserEventCounterStream> streams = new ConcurrentHashMap<String, CumulativeCollapserEventCounterStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCollapserKey, CumulativeCollapserEventCounterStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     private static final int NUM_EVENT_TYPES = HystrixEventType.Collapser.values().length;
 
@@ -55,25 +58,11 @@ public class CumulativeCollapserEventCounterStream extends BucketedCumulativeCou
     }
 
     public static CumulativeCollapserEventCounterStream getInstance(HystrixCollapserKey collapserKey, int numBuckets, int bucketSizeInMs) {
-        CumulativeCollapserEventCounterStream initialStream = streams.get(collapserKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (CumulativeCollapserEventCounterStream.class) {
-                CumulativeCollapserEventCounterStream existingStream = streams.get(collapserKey.name());
-                if (existingStream == null) {
-                    CumulativeCollapserEventCounterStream newStream = new CumulativeCollapserEventCounterStream(collapserKey, numBuckets, bucketSizeInMs, HystrixCollapserMetrics.appendEventToBucket, HystrixCollapserMetrics.bucketAggregator);
-                    streams.putIfAbsent(collapserKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(collapserKey, () -> new CumulativeCollapserEventCounterStream(collapserKey, numBuckets, bucketSizeInMs, HystrixCollapserMetrics.appendEventToBucket, HystrixCollapserMetrics.bucketAggregator));
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     private CumulativeCollapserEventCounterStream(HystrixCollapserKey collapserKey, int numCounterBuckets, int counterBucketSizeInMs,

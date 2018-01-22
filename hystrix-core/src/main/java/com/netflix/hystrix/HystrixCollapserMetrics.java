@@ -15,6 +15,9 @@
  */
 package com.netflix.hystrix;
 
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCollapserEvent;
 import com.netflix.hystrix.metric.HystrixThreadEventStream;
 import com.netflix.hystrix.metric.consumer.CumulativeCollapserEventCounterStream;
@@ -22,13 +25,13 @@ import com.netflix.hystrix.metric.consumer.RollingCollapserBatchSizeDistribution
 import com.netflix.hystrix.metric.consumer.RollingCollapserEventCounterStream;
 import com.netflix.hystrix.strategy.eventnotifier.HystrixEventNotifier;
 import com.netflix.hystrix.util.HystrixRollingNumberEvent;
+import com.netflix.hystrix.util.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import rx.functions.Func2;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Used by {@link HystrixCollapser} to record metrics.
@@ -40,7 +43,7 @@ public class HystrixCollapserMetrics extends HystrixMetrics {
     private static final Logger logger = LoggerFactory.getLogger(HystrixCollapserMetrics.class);
 
     // String is HystrixCollapserKey.name() (we can't use HystrixCollapserKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static final ConcurrentHashMap<String, HystrixCollapserMetrics> metrics = new ConcurrentHashMap<String, HystrixCollapserMetrics>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCollapserKey, HystrixCollapserMetrics>> metrics = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     /**
      * Get or create the {@link HystrixCollapserMetrics} instance for a given {@link HystrixCollapserKey}.
@@ -52,22 +55,7 @@ public class HystrixCollapserMetrics extends HystrixMetrics {
      * @return {@link HystrixCollapserMetrics}
      */
     public static HystrixCollapserMetrics getInstance(HystrixCollapserKey key, HystrixCollapserProperties properties) {
-        // attempt to retrieve from cache first
-        HystrixCollapserMetrics collapserMetrics = metrics.get(key.name());
-        if (collapserMetrics != null) {
-            return collapserMetrics;
-        }
-        // it doesn't exist so we need to create it
-        collapserMetrics = new HystrixCollapserMetrics(key, properties);
-        // attempt to store it (race other threads)
-        HystrixCollapserMetrics existing = metrics.putIfAbsent(key.name(), collapserMetrics);
-        if (existing == null) {
-            // we won the thread-race to store the instance we created
-            return collapserMetrics;
-        } else {
-            // we lost so return 'existing' and let the one we created be garbage collected
-            return existing;
-        }
+        return metrics.get().getOrLoad(key, () -> new HystrixCollapserMetrics(key, properties));
     }
 
     /**
@@ -76,7 +64,7 @@ public class HystrixCollapserMetrics extends HystrixMetrics {
      * @return {@code Collection<HystrixCollapserMetrics>}
      */
     public static Collection<HystrixCollapserMetrics> getInstances() {
-        return Collections.unmodifiableCollection(metrics.values());
+        return Collections.unmodifiableCollection(metrics.get().values());
     }
 
     private static final HystrixEventType.Collapser[] ALL_EVENT_TYPES = HystrixEventType.Collapser.values();
@@ -105,7 +93,7 @@ public class HystrixCollapserMetrics extends HystrixMetrics {
      * Clears all state from metrics. If new requests come in instances will be recreated and metrics started from scratch.
      */
     /* package */ static void reset() {
-        metrics.clear();
+        metrics.get().clear();
     }
 
     private final HystrixCollapserKey collapserKey;

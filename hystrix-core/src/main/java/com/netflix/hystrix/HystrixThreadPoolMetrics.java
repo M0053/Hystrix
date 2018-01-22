@@ -15,13 +15,15 @@
  */
 package com.netflix.hystrix;
 
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCommandCompletion;
 import com.netflix.hystrix.metric.consumer.CumulativeThreadPoolEventCounterStream;
 import com.netflix.hystrix.metric.consumer.RollingThreadPoolMaxConcurrencyStream;
 import com.netflix.hystrix.metric.consumer.RollingThreadPoolEventCounterStream;
 import com.netflix.hystrix.util.HystrixRollingNumberEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.netflix.hystrix.util.Lazy;
 import rx.functions.Func0;
 import rx.functions.Func2;
 
@@ -30,7 +32,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,7 +45,7 @@ public class HystrixThreadPoolMetrics extends HystrixMetrics {
     private static final int NUMBER_THREADPOOL_EVENT_TYPES = ALL_THREADPOOL_EVENT_TYPES.length;
 
     // String is HystrixThreadPoolKey.name() (we can't use HystrixThreadPoolKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static final ConcurrentHashMap<String, HystrixThreadPoolMetrics> metrics = new ConcurrentHashMap<String, HystrixThreadPoolMetrics>();
+    private static final Lazy<HystrixKeyDataStore<HystrixThreadPoolKey, HystrixThreadPoolMetrics>> metrics = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     /**
      * Get or create the {@link HystrixThreadPoolMetrics} instance for a given {@link HystrixThreadPoolKey}.
@@ -60,22 +61,7 @@ public class HystrixThreadPoolMetrics extends HystrixMetrics {
      * @return {@link HystrixThreadPoolMetrics}
      */
     public static HystrixThreadPoolMetrics getInstance(HystrixThreadPoolKey key, ThreadPoolExecutor threadPool, HystrixThreadPoolProperties properties) {
-        // attempt to retrieve from cache first
-        HystrixThreadPoolMetrics threadPoolMetrics = metrics.get(key.name());
-        if (threadPoolMetrics != null) {
-            return threadPoolMetrics;
-        } else {
-            synchronized (HystrixThreadPoolMetrics.class) {
-                HystrixThreadPoolMetrics existingMetrics = metrics.get(key.name());
-                if (existingMetrics != null) {
-                    return existingMetrics;
-                } else {
-                    HystrixThreadPoolMetrics newThreadPoolMetrics = new HystrixThreadPoolMetrics(key, threadPool, properties);
-                    metrics.putIfAbsent(key.name(), newThreadPoolMetrics);
-                    return newThreadPoolMetrics;
-                }
-            }
-        }
+        return metrics.get().getOrLoad(key, () -> new HystrixThreadPoolMetrics(key, threadPool, properties));
     }
 
     /**
@@ -86,7 +72,7 @@ public class HystrixThreadPoolMetrics extends HystrixMetrics {
      * @return {@link HystrixThreadPoolMetrics}
      */
     public static HystrixThreadPoolMetrics getInstance(HystrixThreadPoolKey key) {
-        return metrics.get(key.name());
+        return metrics.get().getIfPresent(key);
     }
 
     /**
@@ -96,7 +82,7 @@ public class HystrixThreadPoolMetrics extends HystrixMetrics {
      */
     public static Collection<HystrixThreadPoolMetrics> getInstances() {
         List<HystrixThreadPoolMetrics> threadPoolMetrics = new ArrayList<HystrixThreadPoolMetrics>();
-        for (HystrixThreadPoolMetrics tpm: metrics.values()) {
+        for (HystrixThreadPoolMetrics tpm: metrics.get().values()) {
             if (hasExecutedCommandsOnThread(tpm)) {
                 threadPoolMetrics.add(tpm);
             }
@@ -140,7 +126,7 @@ public class HystrixThreadPoolMetrics extends HystrixMetrics {
      *
      */
     /* package */ static void reset() {
-        metrics.clear();
+        metrics.get().clear();
     }
 
     private final HystrixThreadPoolKey threadPoolKey;

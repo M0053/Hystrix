@@ -17,6 +17,8 @@ package com.netflix.hystrix.strategy.metrics;
 
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.netflix.hystrix.HystrixCircuitBreaker;
 import com.netflix.hystrix.HystrixCollapser;
 import com.netflix.hystrix.HystrixCollapserKey;

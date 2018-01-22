@@ -19,8 +19,11 @@ import com.netflix.hystrix.HystrixEventType;
 import com.netflix.hystrix.HystrixThreadPoolKey;
 import com.netflix.hystrix.HystrixThreadPoolMetrics;
 import com.netflix.hystrix.HystrixThreadPoolProperties;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCommandCompletion;
 import com.netflix.hystrix.metric.HystrixThreadPoolCompletionStream;
+import com.netflix.hystrix.util.Lazy;
 import rx.functions.Func2;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,7 +44,7 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class RollingThreadPoolEventCounterStream extends BucketedRollingCounterStream<HystrixCommandCompletion, long[], long[]> {
 
-    private static final ConcurrentMap<String, RollingThreadPoolEventCounterStream> streams = new ConcurrentHashMap<String, RollingThreadPoolEventCounterStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixThreadPoolKey, RollingThreadPoolEventCounterStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     private static final int ALL_EVENT_TYPES_SIZE = HystrixEventType.ThreadPool.values().length;
 
@@ -54,27 +57,12 @@ public class RollingThreadPoolEventCounterStream extends BucketedRollingCounterS
     }
 
     public static RollingThreadPoolEventCounterStream getInstance(HystrixThreadPoolKey threadPoolKey, int numBuckets, int bucketSizeInMs) {
-        RollingThreadPoolEventCounterStream initialStream = streams.get(threadPoolKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (RollingThreadPoolEventCounterStream.class) {
-                RollingThreadPoolEventCounterStream existingStream = streams.get(threadPoolKey.name());
-                if (existingStream == null) {
-                    RollingThreadPoolEventCounterStream newStream =
-                            new RollingThreadPoolEventCounterStream(threadPoolKey, numBuckets, bucketSizeInMs,
-                                    HystrixThreadPoolMetrics.appendEventToBucket, HystrixThreadPoolMetrics.counterAggregator);
-                    streams.putIfAbsent(threadPoolKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(threadPoolKey, () -> new RollingThreadPoolEventCounterStream(threadPoolKey, numBuckets, bucketSizeInMs,
+                HystrixThreadPoolMetrics.appendEventToBucket, HystrixThreadPoolMetrics.counterAggregator));
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     private RollingThreadPoolEventCounterStream(HystrixThreadPoolKey threadPoolKey, int numCounterBuckets, int counterBucketSizeInMs,

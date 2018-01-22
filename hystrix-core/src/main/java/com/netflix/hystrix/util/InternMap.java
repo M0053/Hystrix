@@ -1,5 +1,7 @@
 package com.netflix.hystrix.util;
 
+import com.netflix.hystrix.datastore.HystrixDataStore;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 

@@ -1,0 +1,4 @@
+dependencies {
+    compileApi project(':hystrix-core')
+    compile 'com.google.guava:guava:20.0'
+}

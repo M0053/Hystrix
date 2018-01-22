@@ -15,7 +15,9 @@
  */
 package com.netflix.hystrix;
 
-import com.netflix.hystrix.util.InternMap;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.util.Lazy;
 
 /**
  * A key to represent a {@link HystrixThreadPool} for monitoring, metrics publishing, caching and other such uses.
@@ -28,14 +30,7 @@ public interface HystrixThreadPoolKey extends HystrixKey {
         }
 
         // used to intern instances so we don't keep re-creating them millions of times for the same key
-        private static final InternMap<String, HystrixThreadPoolKey> intern
-                = new InternMap<String, HystrixThreadPoolKey>(
-                new InternMap.ValueConstructor<String, HystrixThreadPoolKey>() {
-                    @Override
-                    public HystrixThreadPoolKey create(String key) {
-                        return new HystrixThreadPoolKeyDefault(key);
-                    }
-                });
+        private static final Lazy<HystrixDataStore<String, HystrixThreadPoolKey>> intern = HystrixDataStoreProvider.lazyInitDataStore();
 
         /**
          * Retrieve (or create) an interned HystrixThreadPoolKey instance for a given name.
@@ -44,7 +39,7 @@ public interface HystrixThreadPoolKey extends HystrixKey {
          * @return HystrixThreadPoolKey instance that is interned (cached) so a given name will always retrieve the same instance.
          */
         public static HystrixThreadPoolKey asKey(String name) {
-           return intern.interned(name);
+           return intern.get().getOrLoad(name, () -> new HystrixThreadPoolKeyDefault(name));
         }
 
         private static class HystrixThreadPoolKeyDefault extends HystrixKeyDefault implements HystrixThreadPoolKey {
@@ -54,7 +49,7 @@ public interface HystrixThreadPoolKey extends HystrixKey {
         }
 
         /* package-private */ static int getThreadPoolCount() {
-            return intern.size();
+            return intern.get().size();
         }
     }
 }

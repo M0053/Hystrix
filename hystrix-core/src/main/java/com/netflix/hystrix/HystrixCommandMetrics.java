@@ -15,6 +15,8 @@
  */
 package com.netflix.hystrix;
 
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCommandCompletion;
 import com.netflix.hystrix.metric.HystrixThreadEventStream;
 import com.netflix.hystrix.metric.consumer.CumulativeCommandEventCounterStream;
@@ -26,14 +28,13 @@ import com.netflix.hystrix.metric.consumer.RollingCommandUserLatencyDistribution
 import com.netflix.hystrix.strategy.HystrixPlugins;
 import com.netflix.hystrix.strategy.eventnotifier.HystrixEventNotifier;
 import com.netflix.hystrix.util.HystrixRollingNumberEvent;
+import com.netflix.hystrix.util.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import rx.functions.Func0;
 import rx.functions.Func2;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -82,7 +83,7 @@ public class HystrixCommandMetrics extends HystrixMetrics {
     };
 
     // String is HystrixCommandKey.name() (we can't use HystrixCommandKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static final ConcurrentHashMap<String, HystrixCommandMetrics> metrics = new ConcurrentHashMap<String, HystrixCommandMetrics>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCommandKey, HystrixCommandMetrics>> metrics = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     /**
      * Get or create the {@link HystrixCommandMetrics} instance for a given {@link HystrixCommandKey}.
@@ -115,28 +116,15 @@ public class HystrixCommandMetrics extends HystrixMetrics {
      * @return {@link HystrixCommandMetrics}
      */
     public static HystrixCommandMetrics getInstance(HystrixCommandKey key, HystrixCommandGroupKey commandGroup, HystrixThreadPoolKey threadPoolKey, HystrixCommandProperties properties) {
-        // attempt to retrieve from cache first
-        HystrixCommandMetrics commandMetrics = metrics.get(key.name());
-        if (commandMetrics != null) {
-            return commandMetrics;
-        } else {
-            synchronized (HystrixCommandMetrics.class) {
-                HystrixCommandMetrics existingMetrics = metrics.get(key.name());
-                if (existingMetrics != null) {
-                    return existingMetrics;
-                } else {
-                    HystrixThreadPoolKey nonNullThreadPoolKey;
-                    if (threadPoolKey == null) {
-                        nonNullThreadPoolKey = HystrixThreadPoolKey.Factory.asKey(commandGroup.name());
-                    } else {
-                        nonNullThreadPoolKey = threadPoolKey;
-                    }
-                    HystrixCommandMetrics newCommandMetrics = new HystrixCommandMetrics(key, commandGroup, nonNullThreadPoolKey, properties, HystrixPlugins.getInstance().getEventNotifier());
-                    metrics.putIfAbsent(key.name(), newCommandMetrics);
-                    return newCommandMetrics;
-                }
+        return metrics.get().getOrLoad(key, () -> {
+            HystrixThreadPoolKey nonNullThreadPoolKey;
+            if (threadPoolKey == null) {
+                nonNullThreadPoolKey = HystrixThreadPoolKey.Factory.asKey(commandGroup.name());
+            } else {
+                nonNullThreadPoolKey = threadPoolKey;
             }
-        }
+            return new HystrixCommandMetrics(key, commandGroup, nonNullThreadPoolKey, properties, HystrixPlugins.getInstance().getEventNotifier());
+        });
     }
 
     /**
@@ -147,7 +135,7 @@ public class HystrixCommandMetrics extends HystrixMetrics {
      * @return {@link HystrixCommandMetrics}
      */
     public static HystrixCommandMetrics getInstance(HystrixCommandKey key) {
-        return metrics.get(key.name());
+        return metrics.get().getIfPresent(key);
     }
 
     /**
@@ -156,7 +144,7 @@ public class HystrixCommandMetrics extends HystrixMetrics {
      * @return {@code Collection<HystrixCommandMetrics>}
      */
     public static Collection<HystrixCommandMetrics> getInstances() {
-        return Collections.unmodifiableCollection(metrics.values());
+        return Collections.unmodifiableCollection(metrics.get().values());
     }
 
     /**
@@ -166,7 +154,7 @@ public class HystrixCommandMetrics extends HystrixMetrics {
         for (HystrixCommandMetrics metricsInstance: getInstances()) {
             metricsInstance.unsubscribeAll();
         }
-        metrics.clear();
+        metrics.get().clear();
     }
 
     private final HystrixCommandProperties properties;

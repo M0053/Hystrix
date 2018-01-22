@@ -18,8 +18,11 @@ package com.netflix.hystrix.metric.consumer;
 
 import com.netflix.hystrix.HystrixCollapserKey;
 import com.netflix.hystrix.HystrixCollapserProperties;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCollapserEvent;
 import com.netflix.hystrix.metric.HystrixCollapserEventStream;
+import com.netflix.hystrix.util.Lazy;
 import org.HdrHistogram.Histogram;
 import rx.functions.Func2;
 
@@ -39,7 +42,7 @@ import java.util.concurrent.ConcurrentMap;
  * These values get produced and cached in this class, as soon as this stream is queried for the first time.
  */
 public class RollingCollapserBatchSizeDistributionStream extends RollingDistributionStream<HystrixCollapserEvent> {
-    private static final ConcurrentMap<String, RollingCollapserBatchSizeDistributionStream> streams = new ConcurrentHashMap<String, RollingCollapserBatchSizeDistributionStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCollapserKey, RollingCollapserBatchSizeDistributionStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     private static final Func2<Histogram, HystrixCollapserEvent, Histogram> addValuesToBucket = new Func2<Histogram, HystrixCollapserEvent, Histogram>() {
         @Override
@@ -67,25 +70,11 @@ public class RollingCollapserBatchSizeDistributionStream extends RollingDistribu
     }
 
     public static RollingCollapserBatchSizeDistributionStream getInstance(HystrixCollapserKey collapserKey, int numBuckets, int bucketSizeInMs) {
-        RollingCollapserBatchSizeDistributionStream initialStream = streams.get(collapserKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (RollingCollapserBatchSizeDistributionStream.class) {
-                RollingCollapserBatchSizeDistributionStream existingStream = streams.get(collapserKey.name());
-                if (existingStream == null) {
-                    RollingCollapserBatchSizeDistributionStream newStream = new RollingCollapserBatchSizeDistributionStream(collapserKey, numBuckets, bucketSizeInMs);
-                    streams.putIfAbsent(collapserKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(collapserKey, () -> new RollingCollapserBatchSizeDistributionStream(collapserKey, numBuckets, bucketSizeInMs));
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     private RollingCollapserBatchSizeDistributionStream(HystrixCollapserKey collapserKey, int numPercentileBuckets, int percentileBucketSizeInMs) {

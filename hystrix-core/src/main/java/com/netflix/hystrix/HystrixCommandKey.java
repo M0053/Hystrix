@@ -15,7 +15,9 @@
  */
 package com.netflix.hystrix;
 
-import com.netflix.hystrix.util.InternMap;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.util.Lazy;
 
 /**
  * A key to represent a {@link HystrixCommand} for monitoring, circuit-breakers, metrics publishing, caching and other such uses.
@@ -28,14 +30,7 @@ public interface HystrixCommandKey extends HystrixKey {
         }
 
         // used to intern instances so we don't keep re-creating them millions of times for the same key
-        private static final InternMap<String, HystrixCommandKeyDefault> intern
-                = new InternMap<String, HystrixCommandKeyDefault>(
-                new InternMap.ValueConstructor<String, HystrixCommandKeyDefault>() {
-                    @Override
-                    public HystrixCommandKeyDefault create(String key) {
-                        return new HystrixCommandKeyDefault(key);
-                    }
-                });
+        private static final Lazy<HystrixDataStore<String, HystrixCommandKeyDefault>> intern = HystrixDataStoreProvider.lazyInitDataStore();
 
 
         /**
@@ -45,7 +40,7 @@ public interface HystrixCommandKey extends HystrixKey {
          * @return HystrixCommandKey instance that is interned (cached) so a given name will always retrieve the same instance.
          */
         public static HystrixCommandKey asKey(String name) {
-            return intern.interned(name);
+            return intern.get().getOrLoad(name, () -> new HystrixCommandKeyDefault(name));
         }
 
         private static class HystrixCommandKeyDefault extends HystrixKey.HystrixKeyDefault implements HystrixCommandKey {
@@ -55,7 +50,7 @@ public interface HystrixCommandKey extends HystrixKey {
         }
 
         /* package-private */ static int getCommandCount() {
-            return intern.size();
+            return intern.get().size();
         }
     }
 

@@ -16,6 +16,9 @@
 package com.netflix.hystrix.metric;
 
 import com.netflix.hystrix.HystrixThreadPoolKey;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
+import com.netflix.hystrix.util.Lazy;
 import rx.Observable;
 import rx.subjects.PublishSubject;
 import rx.subjects.SerializedSubject;
@@ -35,24 +38,10 @@ public class HystrixThreadPoolStartStream implements HystrixEventStream<HystrixC
     private final Subject<HystrixCommandExecutionStarted, HystrixCommandExecutionStarted> writeOnlySubject;
     private final Observable<HystrixCommandExecutionStarted> readOnlyStream;
 
-    private static final ConcurrentMap<String, HystrixThreadPoolStartStream> streams = new ConcurrentHashMap<String, HystrixThreadPoolStartStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixThreadPoolKey, HystrixThreadPoolStartStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     public static HystrixThreadPoolStartStream getInstance(HystrixThreadPoolKey threadPoolKey) {
-        HystrixThreadPoolStartStream initialStream = streams.get(threadPoolKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (HystrixThreadPoolStartStream.class) {
-                HystrixThreadPoolStartStream existingStream = streams.get(threadPoolKey.name());
-                if (existingStream == null) {
-                    HystrixThreadPoolStartStream newStream = new HystrixThreadPoolStartStream(threadPoolKey);
-                    streams.putIfAbsent(threadPoolKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(threadPoolKey, () -> new HystrixThreadPoolStartStream(threadPoolKey));
     }
 
     HystrixThreadPoolStartStream(final HystrixThreadPoolKey threadPoolKey) {
@@ -63,7 +52,7 @@ public class HystrixThreadPoolStartStream implements HystrixEventStream<HystrixC
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     public void write(HystrixCommandExecutionStarted event) {

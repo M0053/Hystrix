@@ -16,6 +16,9 @@
 package com.netflix.hystrix.metric;
 
 import com.netflix.hystrix.HystrixCommandKey;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
+import com.netflix.hystrix.util.Lazy;
 import rx.Observable;
 import rx.subjects.PublishSubject;
 import rx.subjects.SerializedSubject;
@@ -34,24 +37,10 @@ public class HystrixCommandStartStream implements HystrixEventStream<HystrixComm
     private final Subject<HystrixCommandExecutionStarted, HystrixCommandExecutionStarted> writeOnlySubject;
     private final Observable<HystrixCommandExecutionStarted> readOnlyStream;
 
-    private static final ConcurrentMap<String, HystrixCommandStartStream> streams = new ConcurrentHashMap<String, HystrixCommandStartStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCommandKey, HystrixCommandStartStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     public static HystrixCommandStartStream getInstance(HystrixCommandKey commandKey) {
-        HystrixCommandStartStream initialStream = streams.get(commandKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (HystrixCommandStartStream.class) {
-                HystrixCommandStartStream existingStream = streams.get(commandKey.name());
-                if (existingStream == null) {
-                    HystrixCommandStartStream newStream = new HystrixCommandStartStream(commandKey);
-                    streams.putIfAbsent(commandKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(commandKey, () -> new HystrixCommandStartStream(commandKey));
     }
 
     HystrixCommandStartStream(final HystrixCommandKey commandKey) {
@@ -62,7 +51,7 @@ public class HystrixCommandStartStream implements HystrixEventStream<HystrixComm
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     public void write(HystrixCommandExecutionStarted event) {

@@ -22,11 +22,14 @@ import com.netflix.hystrix.collapser.HystrixCollapserBridge;
 import com.netflix.hystrix.collapser.RealCollapserTimer;
 import com.netflix.hystrix.collapser.RequestCollapser;
 import com.netflix.hystrix.collapser.RequestCollapserFactory;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
 import com.netflix.hystrix.strategy.HystrixPlugins;
 import com.netflix.hystrix.strategy.concurrency.HystrixRequestContext;
 import com.netflix.hystrix.strategy.metrics.HystrixMetricsPublisherFactory;
 import com.netflix.hystrix.strategy.properties.HystrixPropertiesFactory;
 import com.netflix.hystrix.strategy.properties.HystrixPropertiesStrategy;
+import com.netflix.hystrix.util.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import rx.Observable;
@@ -45,7 +48,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Collapse multiple requests into a single {@link HystrixCommand} execution based on a time window and optionally a max batch size.
@@ -503,20 +505,17 @@ public abstract class HystrixObservableCollapser<K, BatchReturnType, ResponseTyp
     }
 
     private static String getDefaultNameFromClass(@SuppressWarnings("rawtypes") Class<? extends HystrixObservableCollapser> cls) {
-        String fromCache = defaultNameCache.get(cls);
-        if (fromCache != null) {
-            return fromCache;
-        }
-        // generate the default
-        // default HystrixCommandKey to use if the method is not overridden
-        String name = cls.getSimpleName();
-        if (name.equals("")) {
-            // we don't have a SimpleName (anonymous inner class) so use the full class name
-            name = cls.getName();
-            name = name.substring(name.lastIndexOf('.') + 1, name.length());
-        }
-        defaultNameCache.put(cls, name);
-        return name;
+        return defaultNameCache.get().getOrLoad(cls, () -> {
+            // generate the default
+            // default HystrixCommandKey to use if the method is not overridden
+            String name = cls.getSimpleName();
+            if (name.equals("")) {
+                // we don't have a SimpleName (anonymous inner class) so use the full class name
+                name = cls.getName();
+                name = name.substring(name.lastIndexOf('.') + 1, name.length());
+            }
+            return name;
+        });
     }
 
     /**
@@ -585,6 +584,6 @@ public abstract class HystrixObservableCollapser<K, BatchReturnType, ResponseTyp
     // this is a micro-optimization but saves about 1-2microseconds (on 2011 MacBook Pro) 
     // on the repetitive string processing that will occur on the same classes over and over again
     @SuppressWarnings("rawtypes")
-    private static ConcurrentHashMap<Class<? extends HystrixObservableCollapser>, String> defaultNameCache = new ConcurrentHashMap<Class<? extends HystrixObservableCollapser>, String>();
+    private static Lazy<HystrixDataStore<Class<? extends HystrixObservableCollapser>, String>> defaultNameCache = HystrixDataStoreProvider.lazyInitDataStore();
 
 }

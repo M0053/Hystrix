@@ -17,7 +17,10 @@ package com.netflix.hystrix.metric.consumer;
 
 import com.netflix.hystrix.HystrixCommandKey;
 import com.netflix.hystrix.HystrixCommandProperties;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCommandStartStream;
+import com.netflix.hystrix.util.Lazy;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -36,7 +39,7 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class RollingCommandMaxConcurrencyStream extends RollingConcurrencyStream {
 
-    private static final ConcurrentMap<String, RollingCommandMaxConcurrencyStream> streams = new ConcurrentHashMap<String, RollingCommandMaxConcurrencyStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCommandKey, RollingCommandMaxConcurrencyStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     public static RollingCommandMaxConcurrencyStream getInstance(HystrixCommandKey commandKey, HystrixCommandProperties properties) {
         final int counterMetricWindow = properties.metricsRollingStatisticalWindowInMilliseconds().get();
@@ -47,25 +50,11 @@ public class RollingCommandMaxConcurrencyStream extends RollingConcurrencyStream
     }
 
     public static RollingCommandMaxConcurrencyStream getInstance(HystrixCommandKey commandKey, int numBuckets, int bucketSizeInMs) {
-        RollingCommandMaxConcurrencyStream initialStream = streams.get(commandKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (RollingCommandMaxConcurrencyStream.class) {
-                RollingCommandMaxConcurrencyStream existingStream = streams.get(commandKey.name());
-                if (existingStream == null) {
-                    RollingCommandMaxConcurrencyStream newStream = new RollingCommandMaxConcurrencyStream(commandKey, numBuckets, bucketSizeInMs);
-                    streams.putIfAbsent(commandKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(commandKey, () -> new RollingCommandMaxConcurrencyStream(commandKey, numBuckets, bucketSizeInMs));
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     private RollingCommandMaxConcurrencyStream(final HystrixCommandKey commandKey, final int numBuckets, final int bucketSizeInMs) {

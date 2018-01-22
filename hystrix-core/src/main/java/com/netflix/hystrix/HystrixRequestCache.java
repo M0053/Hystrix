@@ -15,14 +15,15 @@
  */
 package com.netflix.hystrix;
 
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
 import com.netflix.hystrix.strategy.concurrency.HystrixConcurrencyStrategy;
 import com.netflix.hystrix.strategy.concurrency.HystrixRequestVariableDefault;
 import com.netflix.hystrix.strategy.concurrency.HystrixRequestVariableHolder;
 import com.netflix.hystrix.strategy.concurrency.HystrixRequestVariableLifecycle;
+import com.netflix.hystrix.util.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import rx.Observable;
-import rx.internal.operators.CachedObservable;
 
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,7 +37,7 @@ public class HystrixRequestCache {
     private static final Logger logger = LoggerFactory.getLogger(HystrixRequestCache.class);
 
     // the String key must be: HystrixRequestCache.prefix + concurrencyStrategy + cacheKey
-    private final static ConcurrentHashMap<RequestCacheKey, HystrixRequestCache> caches = new ConcurrentHashMap<RequestCacheKey, HystrixRequestCache>();
+    private final static Lazy<HystrixDataStore<RequestCacheKey, HystrixRequestCache>> caches = HystrixDataStoreProvider.lazyInitDataStore();
 
     private final RequestCacheKey rcKey;
     private final HystrixConcurrencyStrategy concurrencyStrategy;
@@ -74,19 +75,7 @@ public class HystrixRequestCache {
     }
 
     private static HystrixRequestCache getInstance(RequestCacheKey rcKey, HystrixConcurrencyStrategy concurrencyStrategy) {
-        HystrixRequestCache c = caches.get(rcKey);
-        if (c == null) {
-            HystrixRequestCache newRequestCache = new HystrixRequestCache(rcKey, concurrencyStrategy);
-            HystrixRequestCache existing = caches.putIfAbsent(rcKey, newRequestCache);
-            if (existing == null) {
-                // we won so use the new one
-                c = newRequestCache;
-            } else {
-                // we lost so use the existing
-                c = existing;
-            }
-        }
-        return c;
+        return caches.get().getOrLoad(rcKey, () -> new HystrixRequestCache(rcKey, concurrencyStrategy));
     }
 
     /**

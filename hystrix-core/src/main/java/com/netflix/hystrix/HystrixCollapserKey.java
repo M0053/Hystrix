@@ -15,14 +15,16 @@
  */
 package com.netflix.hystrix;
 
-import java.util.concurrent.ConcurrentHashMap;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.util.Lazy;
 
 /**
  * A key to represent a {@link HystrixCollapser} for monitoring, circuit-breakers, metrics publishing, caching and other such uses.
  * <p>
  * This interface is intended to work natively with Enums so that implementing code can be an enum that implements this interface.
  */
-public interface HystrixCollapserKey {
+public interface HystrixCollapserKey extends HystrixKey {
 
     /**
      * The word 'name' is used instead of 'key' so that Enums can implement this interface and it work natively.
@@ -37,7 +39,7 @@ public interface HystrixCollapserKey {
         }
 
         // used to intern instances so we don't keep re-creating them millions of times for the same key
-        private static ConcurrentHashMap<String, HystrixCollapserKey> intern = new ConcurrentHashMap<String, HystrixCollapserKey>();
+        private static Lazy<HystrixDataStore<String, HystrixCollapserKey>> intern = HystrixDataStoreProvider.lazyInitDataStore();
 
         /**
          * Retrieve (or create) an interned HystrixCollapserKey instance for a given name.
@@ -46,11 +48,7 @@ public interface HystrixCollapserKey {
          * @return HystrixCollapserKey instance that is interned (cached) so a given name will always retrieve the same instance.
          */
         public static HystrixCollapserKey asKey(String name) {
-            HystrixCollapserKey k = intern.get(name);
-            if (k == null) {
-                intern.putIfAbsent(name, new HystrixCollapserKeyDefault(name));
-            }
-            return intern.get(name);
+            return intern.get().getOrLoad(name,() -> new HystrixCollapserKeyDefault(name));
         }
 
         private static class HystrixCollapserKeyDefault implements HystrixCollapserKey {

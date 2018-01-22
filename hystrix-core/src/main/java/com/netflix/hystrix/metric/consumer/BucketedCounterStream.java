@@ -83,6 +83,7 @@ public abstract class BucketedCounterStream<Event extends HystrixEvent, Bucket, 
     public abstract Observable<Output> observe();
 
     public void startCachingStreamValuesIfUnstarted() {
+        System.out.println("Starting caching");
         if (subscription.get() == null) {
             //the stream is not yet started
             Subscription candidateSubscription = observe().subscribe(counterSubject);

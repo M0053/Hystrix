@@ -15,11 +15,14 @@
  */
 package com.netflix.hystrix;
 
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.netflix.hystrix.HystrixCommandMetrics.HealthCounts;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
+import com.netflix.hystrix.util.Lazy;
 import rx.Subscriber;
 import rx.Subscription;
 
@@ -69,7 +72,7 @@ public interface HystrixCircuitBreaker {
      */
     class Factory {
         // String is HystrixCommandKey.name() (we can't use HystrixCommandKey directly as we can't guarantee it implements hashcode/equals correctly)
-        private static ConcurrentHashMap<String, HystrixCircuitBreaker> circuitBreakersByCommand = new ConcurrentHashMap<String, HystrixCircuitBreaker>();
+        private static Lazy<HystrixKeyDataStore<HystrixCommandKey, HystrixCircuitBreaker>> circuitBreakersByCommand = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
         /**
          * Get the {@link HystrixCircuitBreaker} instance for a given {@link HystrixCommandKey}.
@@ -88,25 +91,7 @@ public interface HystrixCircuitBreaker {
          */
         public static HystrixCircuitBreaker getInstance(HystrixCommandKey key, HystrixCommandGroupKey group, HystrixCommandProperties properties, HystrixCommandMetrics metrics) {
             // this should find it for all but the first time
-            HystrixCircuitBreaker previouslyCached = circuitBreakersByCommand.get(key.name());
-            if (previouslyCached != null) {
-                return previouslyCached;
-            }
-
-            // if we get here this is the first time so we need to initialize
-
-            // Create and add to the map ... use putIfAbsent to atomically handle the possible race-condition of
-            // 2 threads hitting this point at the same time and let ConcurrentHashMap provide us our thread-safety
-            // If 2 threads hit here only one will get added and the other will get a non-null response instead.
-            HystrixCircuitBreaker cbForCommand = circuitBreakersByCommand.putIfAbsent(key.name(), new HystrixCircuitBreakerImpl(key, group, properties, metrics));
-            if (cbForCommand == null) {
-                // this means the putIfAbsent step just created a new one so let's retrieve and return it
-                return circuitBreakersByCommand.get(key.name());
-            } else {
-                // this means a race occurred and while attempting to 'put' another one got there before
-                // and we instead retrieved it and will now return it
-                return cbForCommand;
-            }
+            return circuitBreakersByCommand.get().getOrLoad(key, () -> new HystrixCircuitBreakerImpl(key, group, properties, metrics));
         }
 
         /**
@@ -117,14 +102,14 @@ public interface HystrixCircuitBreaker {
          * @return {@link HystrixCircuitBreaker} for {@link HystrixCommandKey}
          */
         public static HystrixCircuitBreaker getInstance(HystrixCommandKey key) {
-            return circuitBreakersByCommand.get(key.name());
+            return circuitBreakersByCommand.get().getIfPresent(key);
         }
 
         /**
          * Clears all circuit breakers. If new requests come in instances will be recreated.
          */
         /* package */static void reset() {
-            circuitBreakersByCommand.clear();
+            circuitBreakersByCommand.get().clear();
         }
     }
 

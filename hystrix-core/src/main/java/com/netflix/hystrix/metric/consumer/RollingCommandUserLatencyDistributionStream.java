@@ -20,9 +20,12 @@ import com.netflix.hystrix.HystrixCollapserProperties;
 
 import com.netflix.hystrix.HystrixCommandKey;
 import com.netflix.hystrix.HystrixCommandProperties;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCommandCompletion;
 import com.netflix.hystrix.metric.HystrixCommandCompletionStream;
 import com.netflix.hystrix.metric.HystrixCommandEvent;
+import com.netflix.hystrix.util.Lazy;
 import org.HdrHistogram.Histogram;
 import rx.functions.Func2;
 
@@ -49,7 +52,7 @@ import java.util.concurrent.ConcurrentMap;
  * ** Total time is the time spent from the perspecitve of the consumer, and includes all Hystrix bookkeeping.
  */
 public class RollingCommandUserLatencyDistributionStream extends RollingDistributionStream<HystrixCommandCompletion> {
-    private static final ConcurrentMap<String, RollingCommandUserLatencyDistributionStream> streams = new ConcurrentHashMap<String, RollingCommandUserLatencyDistributionStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCommandKey, RollingCommandUserLatencyDistributionStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     private static final Func2<Histogram, HystrixCommandCompletion, Histogram> addValuesToBucket = new Func2<Histogram, HystrixCommandCompletion, Histogram>() {
         @Override
@@ -70,25 +73,11 @@ public class RollingCommandUserLatencyDistributionStream extends RollingDistribu
     }
 
     public static RollingCommandUserLatencyDistributionStream getInstance(HystrixCommandKey commandKey, int numBuckets, int bucketSizeInMs) {
-        RollingCommandUserLatencyDistributionStream initialStream = streams.get(commandKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (RollingCommandUserLatencyDistributionStream.class) {
-                RollingCommandUserLatencyDistributionStream existingStream = streams.get(commandKey.name());
-                if (existingStream == null) {
-                    RollingCommandUserLatencyDistributionStream newStream = new RollingCommandUserLatencyDistributionStream(commandKey, numBuckets, bucketSizeInMs);
-                    streams.putIfAbsent(commandKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(commandKey, () -> new RollingCommandUserLatencyDistributionStream(commandKey, numBuckets, bucketSizeInMs));
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     private RollingCommandUserLatencyDistributionStream(HystrixCommandKey commandKey, int numPercentileBuckets, int percentileBucketSizeInMs) {

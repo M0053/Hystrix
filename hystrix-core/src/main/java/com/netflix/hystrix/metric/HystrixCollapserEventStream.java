@@ -16,6 +16,10 @@
 package com.netflix.hystrix.metric;
 
 import com.netflix.hystrix.HystrixCollapserKey;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
+import com.netflix.hystrix.util.Lazy;
 import rx.Observable;
 import rx.subjects.PublishSubject;
 import rx.subjects.SerializedSubject;
@@ -34,24 +38,10 @@ public class HystrixCollapserEventStream implements HystrixEventStream<HystrixCo
     private final Subject<HystrixCollapserEvent, HystrixCollapserEvent> writeOnlyStream;
     private final Observable<HystrixCollapserEvent> readOnlyStream;
 
-    private static final ConcurrentMap<String, HystrixCollapserEventStream> streams = new ConcurrentHashMap<String, HystrixCollapserEventStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCollapserKey, HystrixCollapserEventStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     public static HystrixCollapserEventStream getInstance(HystrixCollapserKey collapserKey) {
-        HystrixCollapserEventStream initialStream = streams.get(collapserKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (HystrixCollapserEventStream.class) {
-                HystrixCollapserEventStream existingStream = streams.get(collapserKey.name());
-                if (existingStream == null) {
-                    HystrixCollapserEventStream newStream = new HystrixCollapserEventStream(collapserKey);
-                    streams.putIfAbsent(collapserKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(collapserKey, () -> new HystrixCollapserEventStream(collapserKey));
     }
 
     HystrixCollapserEventStream(final HystrixCollapserKey collapserKey) {
@@ -62,7 +52,7 @@ public class HystrixCollapserEventStream implements HystrixEventStream<HystrixCo
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     public void write(HystrixCollapserEvent event) {

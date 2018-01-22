@@ -15,7 +15,9 @@
  */
 package com.netflix.hystrix;
 
-import com.netflix.hystrix.util.InternMap;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.util.Lazy;
 
 /**
  * A group name for a {@link HystrixCommand}. This is used for grouping together commands such as for reporting, alerting, dashboards or team/library ownership.
@@ -30,14 +32,7 @@ public interface HystrixCommandGroupKey extends HystrixKey {
         }
 
         // used to intern instances so we don't keep re-creating them millions of times for the same key
-        private static final InternMap<String, HystrixCommandGroupDefault> intern
-                = new InternMap<String, HystrixCommandGroupDefault>(
-                new InternMap.ValueConstructor<String, HystrixCommandGroupDefault>() {
-                    @Override
-                    public HystrixCommandGroupDefault create(String key) {
-                        return new HystrixCommandGroupDefault(key);
-                    }
-                });
+        private static final Lazy<HystrixDataStore<String, HystrixCommandGroupDefault>> intern = HystrixDataStoreProvider.lazyInitDataStore();
 
 
         /**
@@ -47,7 +42,7 @@ public interface HystrixCommandGroupKey extends HystrixKey {
          * @return HystrixCommandGroup instance that is interned (cached) so a given name will always retrieve the same instance.
          */
         public static HystrixCommandGroupKey asKey(String name) {
-           return intern.interned(name);
+           return intern.get().getOrLoad(name, () -> new HystrixCommandGroupDefault(name));
         }
 
         private static class HystrixCommandGroupDefault extends HystrixKey.HystrixKeyDefault implements HystrixCommandGroupKey {
@@ -57,7 +52,7 @@ public interface HystrixCommandGroupKey extends HystrixKey {
         }
 
         /* package-private */ static int getGroupCount() {
-            return intern.size();
+            return intern.get().size();
         }
     }
 }

@@ -46,36 +46,36 @@ public class HystrixThreadPoolTest {
     @Test
     public void testShutdown() {
         // other unit tests will probably have run before this so get the count
-        int count = Factory.threadPools.size();
+        int count = Factory.threadPools.get().size();
 
         HystrixThreadPool pool = Factory.getInstance(HystrixThreadPoolKey.Factory.asKey("threadPoolFactoryTest"),
                 HystrixThreadPoolPropertiesTest.getUnitTestPropertiesBuilder());
 
-        assertEquals(count + 1, Factory.threadPools.size());
+        assertEquals(count + 1, Factory.threadPools.get().size());
         assertFalse(pool.getExecutor().isShutdown());
 
         Factory.shutdown();
 
         // ensure all pools were removed from the cache
-        assertEquals(0, Factory.threadPools.size());
+        assertEquals(0, Factory.threadPools.get().size());
         assertTrue(pool.getExecutor().isShutdown());
     }
 
     @Test
     public void testShutdownWithWait() {
         // other unit tests will probably have run before this so get the count
-        int count = Factory.threadPools.size();
+        int count = Factory.threadPools.get().size();
 
         HystrixThreadPool pool = Factory.getInstance(HystrixThreadPoolKey.Factory.asKey("threadPoolFactoryTest"),
                 HystrixThreadPoolPropertiesTest.getUnitTestPropertiesBuilder());
 
-        assertEquals(count + 1, Factory.threadPools.size());
+        assertEquals(count + 1, Factory.threadPools.get().size());
         assertFalse(pool.getExecutor().isShutdown());
 
         Factory.shutdown(1, TimeUnit.SECONDS);
 
         // ensure all pools were removed from the cache
-        assertEquals(0, Factory.threadPools.size());
+        assertEquals(0, Factory.threadPools.get().size());
         assertTrue(pool.getExecutor().isShutdown());
     }
 

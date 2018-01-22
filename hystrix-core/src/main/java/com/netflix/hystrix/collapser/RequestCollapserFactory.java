@@ -17,6 +17,9 @@ package com.netflix.hystrix.collapser;
 
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
+import com.netflix.hystrix.util.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,34 +99,19 @@ public class RequestCollapserFactory<BatchReturnType, ResponseType, RequestArgum
      * Static global cache of RequestCollapsers for Scope.GLOBAL
      */
     // String is CollapserKey.name() (we can't use CollapserKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static ConcurrentHashMap<String, RequestCollapser<?, ?, ?>> globalScopedCollapsers = new ConcurrentHashMap<String, RequestCollapser<?, ?, ?>>();
+    private static Lazy<HystrixKeyDataStore<HystrixCollapserKey, RequestCollapser<?, ?, ?>>> globalScopedCollapsers = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     @SuppressWarnings("unchecked")
     private RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType> getCollapserForGlobalScope(HystrixCollapserBridge<BatchReturnType, ResponseType, RequestArgumentType> commandCollapser) {
-        RequestCollapser<?, ?, ?> collapser = globalScopedCollapsers.get(collapserKey.name());
-        if (collapser != null) {
-            return (RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType>) collapser;
-        }
-        // create new collapser using 'this' first instance as the one that will get cached for future executions ('this' is stateless so we can do that)
-        RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType> newCollapser = new RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType>(commandCollapser, properties, timer, concurrencyStrategy);
-        RequestCollapser<?, ?, ?> existing = globalScopedCollapsers.putIfAbsent(collapserKey.name(), newCollapser);
-        if (existing == null) {
-            // we won
-            return newCollapser;
-        } else {
-            // we lost ... another thread beat us
-            // shutdown the one we created but didn't get stored
-            newCollapser.shutdown();
-            // return the existing one
-            return (RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType>) existing;
-        }
+        return (RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType>) globalScopedCollapsers.get().getOrLoad(collapserKey, () ->
+                new RequestCollapser<BatchReturnType, ResponseType, RequestArgumentType>(commandCollapser, properties, timer, concurrencyStrategy));
     }
 
     /**
      * Static global cache of RequestVariables with RequestCollapsers for Scope.REQUEST
      */
     // String is HystrixCollapserKey.name() (we can't use HystrixCollapserKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static ConcurrentHashMap<String, HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>>> requestScopedCollapsers = new ConcurrentHashMap<String, HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>>>();
+    private static Lazy<HystrixKeyDataStore<HystrixCollapserKey, HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>>>> requestScopedCollapsers = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     /* we are casting because the Map needs to be <?, ?> but we know it is <ReturnType, RequestArgumentType> for this thread */
     @SuppressWarnings("unchecked")
@@ -139,35 +127,16 @@ public class RequestCollapserFactory<BatchReturnType, ResponseType, RequestArgum
      */
     @SuppressWarnings("unchecked")
     private HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>> getRequestVariableForCommand(final HystrixCollapserBridge<BatchReturnType, ResponseType, RequestArgumentType> commandCollapser) {
-        HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>> requestVariable = requestScopedCollapsers.get(commandCollapser.getCollapserKey().name());
-        if (requestVariable == null) {
-            // create new collapser using 'this' first instance as the one that will get cached for future executions ('this' is stateless so we can do that)
-            @SuppressWarnings({ "rawtypes" })
-            HystrixRequestVariableHolder newCollapser = new RequestCollapserRequestVariable(commandCollapser, properties, timer, concurrencyStrategy);
-            HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>> existing = requestScopedCollapsers.putIfAbsent(commandCollapser.getCollapserKey().name(), newCollapser);
-            if (existing == null) {
-                // this thread won, so return the one we just created
-                requestVariable = newCollapser;
-            } else {
-                // another thread beat us (this should only happen when we have concurrency on the FIRST request for the life of the app for this HystrixCollapser class)
-                requestVariable = existing;
-                /*
-                 * This *should* be okay to discard the created object without cleanup as the RequestVariable implementation
-                 * should properly do lazy-initialization and only call initialValue() the first time get() is called.
-                 * 
-                 * If it does not correctly follow this contract then there is a chance of a memory leak here.
-                 */
-            }
-        }
-        return requestVariable;
+        return requestScopedCollapsers.get().getOrLoad(commandCollapser.getCollapserKey(), () ->
+                (HystrixRequestVariableHolder) new RequestCollapserRequestVariable(commandCollapser, properties, timer, concurrencyStrategy));
     }
 
     /**
      * Clears all state. If new requests come in instances will be recreated and metrics started from scratch.
      */
     public static void reset() {
-        globalScopedCollapsers.clear();
-        requestScopedCollapsers.clear();
+        globalScopedCollapsers.get().clear();
+        requestScopedCollapsers.get().clear();
         HystrixTimer.reset();
     }
 
@@ -175,14 +144,14 @@ public class RequestCollapserFactory<BatchReturnType, ResponseType, RequestArgum
      * Used for testing
      */
     public static void resetRequest() {
-        requestScopedCollapsers.clear();
+        requestScopedCollapsers.get().clear();
     }
 
     /**
      * Used for testing
      */
-    public static HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>> getRequestVariable(String key) {
-        return requestScopedCollapsers.get(key);
+    public static HystrixRequestVariableHolder<RequestCollapser<?, ?, ?>> getRequestVariable(HystrixCollapserKey key) {
+        return requestScopedCollapsers.get().getIfPresent(key);
     }
 
     /**

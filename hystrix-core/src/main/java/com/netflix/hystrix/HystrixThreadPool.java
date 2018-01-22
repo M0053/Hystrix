@@ -15,18 +15,21 @@
  */
 package com.netflix.hystrix;
 
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.strategy.HystrixPlugins;
 import com.netflix.hystrix.strategy.concurrency.HystrixConcurrencyStrategy;
 import com.netflix.hystrix.strategy.concurrency.HystrixContextScheduler;
 import com.netflix.hystrix.strategy.metrics.HystrixMetricsPublisherFactory;
 import com.netflix.hystrix.strategy.properties.HystrixPropertiesFactory;
+import com.netflix.hystrix.util.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import rx.Scheduler;
 import rx.functions.Func0;
 
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -90,7 +93,7 @@ public interface HystrixThreadPool {
          * Use the String from HystrixThreadPoolKey.name() instead of the HystrixThreadPoolKey instance as it's just an interface and we can't ensure the object
          * we receive implements hashcode/equals correctly and do not want the default hashcode/equals which would create a new threadpool for every object we get even if the name is the same
          */
-        /* package */final static ConcurrentHashMap<String, HystrixThreadPool> threadPools = new ConcurrentHashMap<String, HystrixThreadPool>();
+        /* package */final static Lazy<HystrixKeyDataStore<HystrixThreadPoolKey, HystrixThreadPool>> threadPools = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
         /**
          * Get the {@link HystrixThreadPool} instance for a given {@link HystrixThreadPoolKey}.
@@ -101,21 +104,7 @@ public interface HystrixThreadPool {
          */
         /* package */static HystrixThreadPool getInstance(HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolProperties.Setter propertiesBuilder) {
             // get the key to use instead of using the object itself so that if people forget to implement equals/hashcode things will still work
-            String key = threadPoolKey.name();
-
-            // this should find it for all but the first time
-            HystrixThreadPool previouslyCached = threadPools.get(key);
-            if (previouslyCached != null) {
-                return previouslyCached;
-            }
-
-            // if we get here this is the first time so we need to initialize
-            synchronized (HystrixThreadPool.class) {
-                if (!threadPools.containsKey(key)) {
-                    threadPools.put(key, new HystrixThreadPoolDefault(threadPoolKey, propertiesBuilder));
-                }
-            }
-            return threadPools.get(key);
+            return threadPools.get().getOrLoad(threadPoolKey, () -> new HystrixThreadPoolDefault(threadPoolKey, propertiesBuilder));
         }
 
         /**
@@ -126,10 +115,10 @@ public interface HystrixThreadPool {
          * </p>
          */
         /* package */static synchronized void shutdown() {
-            for (HystrixThreadPool pool : threadPools.values()) {
+            for (HystrixThreadPool pool : threadPools.get().values()) {
                 pool.getExecutor().shutdown();
             }
-            threadPools.clear();
+            threadPools.get().clear();
         }
 
         /**
@@ -140,10 +129,10 @@ public interface HystrixThreadPool {
          * </p>
          */
         /* package */static synchronized void shutdown(long timeout, TimeUnit unit) {
-            for (HystrixThreadPool pool : threadPools.values()) {
+            for (HystrixThreadPool pool : threadPools.get().values()) {
                 pool.getExecutor().shutdown();
             }
-            for (HystrixThreadPool pool : threadPools.values()) {
+            for (HystrixThreadPool pool : threadPools.get().values()) {
                 try {
                     while (! pool.getExecutor().awaitTermination(timeout, unit)) {
                     }
@@ -151,7 +140,7 @@ public interface HystrixThreadPool {
                     throw new RuntimeException("Interrupted while waiting for thread-pools to terminate. Pools may not be correctly shutdown or cleared.", e);
                 }
             }
-            threadPools.clear();
+            threadPools.get().clear();
         }
     }
 

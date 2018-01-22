@@ -25,7 +25,11 @@ import com.netflix.hystrix.HystrixCommandProperties;
 import com.netflix.hystrix.HystrixThreadPool;
 import com.netflix.hystrix.HystrixThreadPoolKey;
 import com.netflix.hystrix.HystrixThreadPoolProperties;
+import com.netflix.hystrix.datastore.HystrixDataStore;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.strategy.HystrixPlugins;
+import com.netflix.hystrix.util.Lazy;
 
 /**
  * Factory for retrieving properties implementations.
@@ -41,13 +45,13 @@ public class HystrixPropertiesFactory {
      * an entire JVM lifetime.  May be invoked directly, and also gets invoked by <code>Hystrix.reset()</code>
      */
     public static void reset() {
-        commandProperties.clear();
-        threadPoolProperties.clear();
-        collapserProperties.clear();
+        commandProperties.get().clear();
+        threadPoolProperties.get().clear();
+        collapserProperties.get().clear();
     }
 
     // String is CommandKey.name() (we can't use CommandKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static final ConcurrentHashMap<String, HystrixCommandProperties> commandProperties = new ConcurrentHashMap<String, HystrixCommandProperties>();
+    private static final Lazy<HystrixDataStore<String, HystrixCommandProperties>> commandProperties = HystrixDataStoreProvider.lazyInitDataStore();
 
     /**
      * Get an instance of {@link HystrixCommandProperties} with the given factory {@link HystrixPropertiesStrategy} implementation for each {@link HystrixCommand} instance.
@@ -62,23 +66,11 @@ public class HystrixPropertiesFactory {
         HystrixPropertiesStrategy hystrixPropertiesStrategy = HystrixPlugins.getInstance().getPropertiesStrategy();
         String cacheKey = hystrixPropertiesStrategy.getCommandPropertiesCacheKey(key, builder);
         if (cacheKey != null) {
-            HystrixCommandProperties properties = commandProperties.get(cacheKey);
-            if (properties != null) {
-                return properties;
-            } else {
-                if (builder == null) {
-                    builder = HystrixCommandProperties.Setter();
-                }
+            return commandProperties.get().getOrLoad(cacheKey, () ->  {
+                HystrixCommandProperties.Setter keyBuilder = builder != null ? builder : HystrixCommandProperties.Setter();
                 // create new instance
-                properties = hystrixPropertiesStrategy.getCommandProperties(key, builder);
-                // cache and return
-                HystrixCommandProperties existing = commandProperties.putIfAbsent(cacheKey, properties);
-                if (existing == null) {
-                    return properties;
-                } else {
-                    return existing;
-                }
-            }
+                return hystrixPropertiesStrategy.getCommandProperties(key, keyBuilder);
+            });
         } else {
             // no cacheKey so we generate it with caching
             return hystrixPropertiesStrategy.getCommandProperties(key, builder);
@@ -86,7 +78,7 @@ public class HystrixPropertiesFactory {
     }
 
     // String is ThreadPoolKey.name() (we can't use ThreadPoolKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static final ConcurrentHashMap<String, HystrixThreadPoolProperties> threadPoolProperties = new ConcurrentHashMap<String, HystrixThreadPoolProperties>();
+    private static final Lazy<HystrixDataStore<String, HystrixThreadPoolProperties>> threadPoolProperties = HystrixDataStoreProvider.lazyInitDataStore();
 
     /**
      * Get an instance of {@link HystrixThreadPoolProperties} with the given factory {@link HystrixPropertiesStrategy} implementation for each {@link HystrixThreadPool} instance.
@@ -101,23 +93,11 @@ public class HystrixPropertiesFactory {
         HystrixPropertiesStrategy hystrixPropertiesStrategy = HystrixPlugins.getInstance().getPropertiesStrategy();
         String cacheKey = hystrixPropertiesStrategy.getThreadPoolPropertiesCacheKey(key, builder);
         if (cacheKey != null) {
-            HystrixThreadPoolProperties properties = threadPoolProperties.get(cacheKey);
-            if (properties != null) {
-                return properties;
-            } else {
-                if (builder == null) {
-                    builder = HystrixThreadPoolProperties.Setter();
-                }
+            return threadPoolProperties.get().getOrLoad(cacheKey, () -> {
+                HystrixThreadPoolProperties.Setter keyBuilder = builder != null ? builder : HystrixThreadPoolProperties.Setter();
                 // create new instance
-                properties = hystrixPropertiesStrategy.getThreadPoolProperties(key, builder);
-                // cache and return
-                HystrixThreadPoolProperties existing = threadPoolProperties.putIfAbsent(cacheKey, properties);
-                if (existing == null) {
-                    return properties;
-                } else {
-                    return existing;
-                }
-            }
+                return hystrixPropertiesStrategy.getThreadPoolProperties(key, keyBuilder);
+            });
         } else {
             // no cacheKey so we generate it with caching
             return hystrixPropertiesStrategy.getThreadPoolProperties(key, builder);
@@ -125,7 +105,7 @@ public class HystrixPropertiesFactory {
     }
 
     // String is CollapserKey.name() (we can't use CollapserKey directly as we can't guarantee it implements hashcode/equals correctly)
-    private static final ConcurrentHashMap<String, HystrixCollapserProperties> collapserProperties = new ConcurrentHashMap<String, HystrixCollapserProperties>();
+    private static final Lazy<HystrixDataStore<String, HystrixCollapserProperties>> collapserProperties = HystrixDataStoreProvider.lazyInitDataStore();
 
     /**
      * Get an instance of {@link HystrixCollapserProperties} with the given factory {@link HystrixPropertiesStrategy} implementation for each {@link HystrixCollapserKey} instance.
@@ -140,23 +120,11 @@ public class HystrixPropertiesFactory {
         HystrixPropertiesStrategy hystrixPropertiesStrategy = HystrixPlugins.getInstance().getPropertiesStrategy();
         String cacheKey = hystrixPropertiesStrategy.getCollapserPropertiesCacheKey(key, builder);
         if (cacheKey != null) {
-            HystrixCollapserProperties properties = collapserProperties.get(cacheKey);
-            if (properties != null) {
-                return properties;
-            } else {
-                if (builder == null) {
-                    builder = HystrixCollapserProperties.Setter();
-                }
+            return collapserProperties.get().getOrLoad(cacheKey, () -> {
+                HystrixCollapserProperties.Setter keyBuilder = builder != null ? builder : HystrixCollapserProperties.Setter();
                 // create new instance
-                properties = hystrixPropertiesStrategy.getCollapserProperties(key, builder);
-                // cache and return
-                HystrixCollapserProperties existing = collapserProperties.putIfAbsent(cacheKey, properties);
-                if (existing == null) {
-                    return properties;
-                } else {
-                    return existing;
-                }
-            }
+                return hystrixPropertiesStrategy.getCollapserProperties(key, keyBuilder);
+            });
         } else {
             // no cacheKey so we generate it with caching
             return hystrixPropertiesStrategy.getCollapserProperties(key, builder);

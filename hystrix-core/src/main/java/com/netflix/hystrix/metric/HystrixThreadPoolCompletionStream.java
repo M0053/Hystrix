@@ -16,6 +16,9 @@
 package com.netflix.hystrix.metric;
 
 import com.netflix.hystrix.HystrixThreadPoolKey;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
+import com.netflix.hystrix.util.Lazy;
 import rx.Observable;
 import rx.subjects.PublishSubject;
 import rx.subjects.SerializedSubject;
@@ -35,24 +38,10 @@ public class HystrixThreadPoolCompletionStream implements HystrixEventStream<Hys
     private final Subject<HystrixCommandCompletion, HystrixCommandCompletion> writeOnlySubject;
     private final Observable<HystrixCommandCompletion> readOnlyStream;
 
-    private static final ConcurrentMap<String, HystrixThreadPoolCompletionStream> streams = new ConcurrentHashMap<String, HystrixThreadPoolCompletionStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixThreadPoolKey, HystrixThreadPoolCompletionStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     public static HystrixThreadPoolCompletionStream getInstance(HystrixThreadPoolKey threadPoolKey) {
-        HystrixThreadPoolCompletionStream initialStream = streams.get(threadPoolKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            synchronized (HystrixThreadPoolCompletionStream.class) {
-                HystrixThreadPoolCompletionStream existingStream = streams.get(threadPoolKey.name());
-                if (existingStream == null) {
-                    HystrixThreadPoolCompletionStream newStream = new HystrixThreadPoolCompletionStream(threadPoolKey);
-                    streams.putIfAbsent(threadPoolKey.name(), newStream);
-                    return newStream;
-                } else {
-                    return existingStream;
-                }
-            }
-        }
+        return streams.get().getOrLoad(threadPoolKey, () -> new HystrixThreadPoolCompletionStream(threadPoolKey));
     }
 
     HystrixThreadPoolCompletionStream(final HystrixThreadPoolKey threadPoolKey) {
@@ -63,7 +52,7 @@ public class HystrixThreadPoolCompletionStream implements HystrixEventStream<Hys
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     public void write(HystrixCommandCompletion event) {

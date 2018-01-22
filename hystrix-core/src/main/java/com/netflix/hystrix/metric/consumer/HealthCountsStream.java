@@ -19,12 +19,12 @@ import com.netflix.hystrix.HystrixCommandKey;
 import com.netflix.hystrix.HystrixCommandMetrics;
 import com.netflix.hystrix.HystrixCommandProperties;
 import com.netflix.hystrix.HystrixEventType;
+import com.netflix.hystrix.datastore.HystrixDataStoreProvider;
+import com.netflix.hystrix.datastore.HystrixKeyDataStore;
 import com.netflix.hystrix.metric.HystrixCommandCompletion;
 import com.netflix.hystrix.metric.HystrixCommandCompletionStream;
+import com.netflix.hystrix.util.Lazy;
 import rx.functions.Func2;
-
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * Maintains a stream of rolling health counts for a given Command.
@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class HealthCountsStream extends BucketedRollingCounterStream<HystrixCommandCompletion, long[], HystrixCommandMetrics.HealthCounts> {
 
-    private static final ConcurrentMap<String, HealthCountsStream> streams = new ConcurrentHashMap<String, HealthCountsStream>();
+    private static final Lazy<HystrixKeyDataStore<HystrixCommandKey, HealthCountsStream>> streams = HystrixDataStoreProvider.lazyInitKeyDataStore();
 
     private static final int NUM_EVENT_TYPES = HystrixEventType.values().length;
 
@@ -63,34 +63,18 @@ public class HealthCountsStream extends BucketedRollingCounterStream<HystrixComm
     }
 
     public static HealthCountsStream getInstance(HystrixCommandKey commandKey, int numBuckets, int bucketSizeInMs) {
-        HealthCountsStream initialStream = streams.get(commandKey.name());
-        if (initialStream != null) {
-            return initialStream;
-        } else {
-            final HealthCountsStream healthStream;
-            synchronized (HealthCountsStream.class) {
-                HealthCountsStream existingStream = streams.get(commandKey.name());
-                if (existingStream == null) {
-                    HealthCountsStream newStream = new HealthCountsStream(commandKey, numBuckets, bucketSizeInMs,
-                            HystrixCommandMetrics.appendEventToBucket);
-
-                    streams.putIfAbsent(commandKey.name(), newStream);
-                    healthStream = newStream;
-                } else {
-                    healthStream = existingStream;
-                }
-            }
-            healthStream.startCachingStreamValuesIfUnstarted();
-            return healthStream;
-        }
+        return streams.get().getOrLoad(commandKey, () ->
+                new HealthCountsStream(commandKey, numBuckets, bucketSizeInMs, HystrixCommandMetrics.appendEventToBucket) {{
+                    startCachingStreamValuesIfUnstarted();
+                }});
     }
 
     public static void reset() {
-        streams.clear();
+        streams.get().clear();
     }
 
     public static void removeByKey(HystrixCommandKey key) {
-        streams.remove(key.name());
+        streams.get().remove(key);
     }
 
     private HealthCountsStream(final HystrixCommandKey commandKey, final int numBuckets, final int bucketSizeInMs,
